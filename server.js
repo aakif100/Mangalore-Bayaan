@@ -100,12 +100,30 @@ app.post('/api/lectures', authMiddleware, async (req,res)=>{
     if(body.tags && typeof body.tags === 'string'){
       body.tags = body.tags.split(',').map(s=>s.trim()).filter(Boolean);
     }
+    // Determine mediaType: prioritize body.mediaType, then videoId (youtube), then mediaUrl (video/audio), default to youtube
+    let mediaType = body.mediaType;
+    if (!mediaType) {
+      if (body.videoId) {
+        mediaType = 'youtube';
+      } else if (body.mediaUrl) {
+        // If mediaUrl starts with /api/files/, it's a GridFS file - default to video (should be set by upload)
+        // Otherwise check extension
+        if (body.mediaUrl.startsWith('/api/files/')) {
+          mediaType = 'video'; // Default, but should be set by upload response
+        } else {
+          mediaType = body.mediaUrl.match(/\.(mp3|wav|ogg|aac|m4a|flac)$/i) ? 'audio' : 'video';
+        }
+      } else {
+        mediaType = 'youtube';
+      }
+    }
+    
     const lecture = new Lecture({
       title: body.title,
       speaker: body.speaker || '',
       masjid: body.masjid || '',
       date: body.date ? new Date(body.date) : undefined,
-      mediaType: body.mediaType || (body.videoId ? 'youtube' : 'youtube'),
+      mediaType: mediaType,
       mediaUrl: body.mediaUrl || '',
       tags: Array.isArray(body.tags) ? body.tags : [],
       videoId: body.videoId || ''
@@ -210,7 +228,7 @@ app.post('/api/upload', authMiddleware, upload.single('file'), async (req,res)=>
   }
 });
 
-// Serve files from GridFS
+// Serve files from GridFS with range request support
 app.get('/api/files/:fileId', async (req, res) => {
   try {
     const fileId = req.params.fileId;
@@ -221,28 +239,75 @@ app.get('/api/files/:fileId', async (req, res) => {
       return res.status(404).json({ error: 'File not found' });
     }
     
-    // Set appropriate headers
-    res.setHeader('Content-Type', metadata.metadata?.mimetype || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${metadata.metadata?.originalName || metadata.filename}"`);
-    res.setHeader('Content-Length', metadata.length);
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    const fileSize = metadata.length;
+    // GridFS stores metadata in metadata field, and also has contentType field
+    const mimeType = metadata.metadata?.mimetype || metadata.contentType || metadata.metadata?.contentType || 'application/octet-stream';
     
-    // Stream file from GridFS
-    const db = mongoose.connection.db;
-    const bucket = new GridFSBucket(db, { bucketName: 'uploads' });
-    const downloadStream = bucket.openDownloadStream(mongoose.Types.ObjectId(fileId));
+    // Handle Range requests (required for video/audio playback)
+    const range = req.headers.range;
     
-    downloadStream.on('error', (err) => {
-      console.error('Error streaming file:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Error streaming file' });
-      }
-    });
-    
-    downloadStream.pipe(res);
+    if (range) {
+      // Parse range header
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const chunksize = (end - start) + 1;
+      
+      // Set headers for partial content
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Accept-Ranges': 'bytes',
+        'Content-Length': chunksize,
+        'Content-Type': mimeType,
+        'Cache-Control': 'public, max-age=31536000',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Expose-Headers': 'Content-Range, Accept-Ranges, Content-Length'
+      });
+      
+      // Stream the requested range
+      const db = mongoose.connection.db;
+      const bucket = new GridFSBucket(db, { bucketName: 'uploads' });
+      const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(fileId), {
+        start: start,
+        end: end
+      });
+      
+      downloadStream.on('error', (err) => {
+        console.error('Error streaming file range:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Error streaming file' });
+        }
+      });
+      
+      downloadStream.pipe(res);
+    } else {
+      // No range request - send entire file
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Disposition', `inline; filename="${metadata.metadata?.originalName || metadata.filename}"`);
+      res.setHeader('Content-Length', fileSize);
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Accept-Ranges', 'bytes');
+      
+      // Stream entire file from GridFS
+      const db = mongoose.connection.db;
+      const bucket = new GridFSBucket(db, { bucketName: 'uploads' });
+      const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(fileId));
+      
+      downloadStream.on('error', (err) => {
+        console.error('Error streaming file:', err);
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Error streaming file' });
+        }
+      });
+      
+      downloadStream.pipe(res);
+    }
   } catch (err) {
     console.error('Error serving file:', err);
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
   }
 });
 

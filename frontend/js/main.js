@@ -119,8 +119,28 @@ function renderCards(data){
   const card = document.createElement('article');
     card.className = 'card';
     // Determine media type and URL/id
+    // Priority: 1. mediaType field, 2. videoId (youtube), 3. mediaUrl extension, 4. default to youtube
     let normalizedVideoId = '';
-    let mediaType = item.mediaType || (item.videoId ? 'youtube' : (item.mediaUrl ? (String(item.mediaUrl).match(/\.(mp3|wav|ogg|aac|m4a|flac)$/i) ? 'audio' : 'video') : 'youtube'));
+    let mediaType = item.mediaType;
+    
+    // If no mediaType set, try to infer from videoId or mediaUrl
+    if (!mediaType) {
+      if (item.videoId) {
+        mediaType = 'youtube';
+      } else if (item.mediaUrl) {
+        // Check if it's a GridFS URL (starts with /api/files/)
+        if (item.mediaUrl.startsWith('/api/files/')) {
+          // Can't determine from URL, default to video (should be set by backend)
+          mediaType = 'video';
+        } else {
+          // Check file extension for non-GridFS URLs
+          mediaType = String(item.mediaUrl).match(/\.(mp3|wav|ogg|aac|m4a|flac)$/i) ? 'audio' : 'video';
+        }
+      } else {
+        mediaType = 'youtube';
+      }
+    }
+    
     if(mediaType === 'youtube'){
       const raw = item.videoId || item.mediaUrl || '';
       const vMatch = String(raw).match(/[?&]v=([A-Za-z0-9_-]{11})/);
@@ -231,7 +251,16 @@ function openModal(videoId, id){
   try{
     videoWrap.innerHTML = '';
     const meta = lectures.find(l=> (l._id===id || l.id===id) );
-    const type = (meta && meta.mediaType) || (videoId ? 'youtube' : 'video');
+    // Determine type: use meta.mediaType if available, otherwise infer from videoId or mediaUrl
+    let type = 'video';
+    if (meta) {
+      type = meta.mediaType || (meta.videoId ? 'youtube' : (meta.mediaUrl ? 'video' : 'youtube'));
+    } else if (videoId) {
+      // If videoId is a YouTube ID (11 chars) or starts with http, it's youtube
+      type = (videoId.length === 11 && /^[A-Za-z0-9_-]{11}$/.test(videoId)) || videoId.startsWith('http') ? 'youtube' : 'video';
+    }
+    
+    console.log('Opening modal:', { videoId, id, type, meta: meta ? { mediaType: meta.mediaType, mediaUrl: meta.mediaUrl, videoId: meta.videoId } : null });
 
     // show modal early so users see it even if media loading takes time
     modal.setAttribute('aria-hidden','false');
@@ -246,9 +275,64 @@ function openModal(videoId, id){
     videoWrap.appendChild(iframe);
   } else if (type === 'video') {
     const vid = document.createElement('video');
-    vid.controls = true; vid.autoplay = true; vid.playsInline = true; vid.style.width = '100%'; vid.style.maxHeight = '70vh';
+    vid.controls = true; 
+    vid.autoplay = false; // Changed to false - let user control playback
+    vid.playsInline = true; 
+    vid.preload = 'metadata'; // Load metadata first
+    vid.style.width = '100%'; 
+    vid.style.maxHeight = '70vh';
     const src = (meta && meta.mediaUrl) || videoId || '';
+    console.log('Setting video src:', src, 'meta:', meta);
+    
+    // Ensure src is a valid URL
+    if (!src) {
+      console.error('No video source provided');
+      videoWrap.innerHTML = `<div style="padding: 20px; text-align: center; color: red;">No video source found.</div>`;
+      return;
+    }
+    
     vid.src = src;
+    
+    // Add comprehensive error handling
+    vid.addEventListener('error', function(e) {
+      const error = vid.error;
+      let errorMsg = 'Error loading video';
+      if (error) {
+        switch(error.code) {
+          case error.MEDIA_ERR_ABORTED:
+            errorMsg = 'Video loading aborted';
+            break;
+          case error.MEDIA_ERR_NETWORK:
+            errorMsg = 'Network error loading video';
+            break;
+          case error.MEDIA_ERR_DECODE:
+            errorMsg = 'Video decoding error';
+            break;
+          case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            errorMsg = 'Video format not supported';
+            break;
+        }
+      }
+      console.error('Video load error:', errorMsg, error, 'src:', src);
+      videoWrap.innerHTML = `<div style="padding: 20px; text-align: center; color: red;">${errorMsg}. Src: ${src}</div>`;
+    });
+    
+    vid.addEventListener('loadstart', function() {
+      console.log('Video loading started:', src);
+    });
+    
+    vid.addEventListener('loadedmetadata', function() {
+      console.log('Video metadata loaded:', vid.videoWidth, 'x', vid.videoHeight, 'duration:', vid.duration);
+    });
+    
+    vid.addEventListener('canplay', function() {
+      console.log('Video can play');
+    });
+    
+    vid.addEventListener('stalled', function() {
+      console.warn('Video loading stalled');
+    });
+    
     // ensure video mode
     videoWrap.classList.remove('audio-mode');
     videoWrap.appendChild(vid);
@@ -257,10 +341,60 @@ function openModal(videoId, id){
     // Create audio element with native controls
     const aud = document.createElement('audio');
     aud.controls = true;  // Enable native controls
-    aud.autoplay = true;
+    aud.autoplay = false; // Changed to false - let user control playback
+    aud.preload = 'metadata'; // Load metadata first
     aud.style = '';      // Reset any inline styles
     const src = (meta && meta.mediaUrl) || videoId || '';
+    console.log('Setting audio src:', src, 'meta:', meta);
+    
+    // Ensure src is a valid URL
+    if (!src) {
+      console.error('No audio source provided');
+      videoWrap.innerHTML = `<div style="padding: 20px; text-align: center; color: red;">No audio source found.</div>`;
+      return;
+    }
+    
     aud.src = src;
+    
+    // Add comprehensive error handling
+    aud.addEventListener('error', function(e) {
+      const error = aud.error;
+      let errorMsg = 'Error loading audio';
+      if (error) {
+        switch(error.code) {
+          case error.MEDIA_ERR_ABORTED:
+            errorMsg = 'Audio loading aborted';
+            break;
+          case error.MEDIA_ERR_NETWORK:
+            errorMsg = 'Network error loading audio';
+            break;
+          case error.MEDIA_ERR_DECODE:
+            errorMsg = 'Audio decoding error';
+            break;
+          case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            errorMsg = 'Audio format not supported';
+            break;
+        }
+      }
+      console.error('Audio load error:', errorMsg, error, 'src:', src);
+      videoWrap.innerHTML = `<div style="padding: 20px; text-align: center; color: red;">${errorMsg}. Src: ${src}</div>`;
+    });
+    
+    aud.addEventListener('loadstart', function() {
+      console.log('Audio loading started:', src);
+    });
+    
+    aud.addEventListener('loadedmetadata', function() {
+      console.log('Audio metadata loaded, duration:', aud.duration);
+    });
+    
+    aud.addEventListener('canplay', function() {
+      console.log('Audio can play');
+    });
+    
+    aud.addEventListener('stalled', function() {
+      console.warn('Audio loading stalled');
+    });
     
     videoWrap.innerHTML = '';  // Clear any previous content
     videoWrap.classList.add('audio-mode');

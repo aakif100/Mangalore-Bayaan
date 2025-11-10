@@ -85,7 +85,8 @@ exports.handler = async (event, context) => {
     return new Promise((resolve, reject) => {
       const db = mongoose.connection.db;
       const bucket = new GridFSBucket(db, { bucketName: 'uploads' });
-      const downloadStream = bucket.openDownloadStream(mongoose.Types.ObjectId(fileId));
+      // Use new keyword for ObjectId
+      const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(fileId));
       const chunks = [];
       
       downloadStream.on('data', (chunk) => {
@@ -108,13 +109,17 @@ exports.handler = async (event, context) => {
         const fileBuffer = Buffer.concat(chunks);
         const base64File = fileBuffer.toString('base64');
         
+        // Get MIME type from metadata
+        const mimeType = metadata.metadata?.mimetype || metadata.contentType || 'application/octet-stream';
+        
         resolve({
           statusCode: 200,
           headers: {
-            'Content-Type': metadata.metadata?.mimetype || 'application/octet-stream',
+            'Content-Type': mimeType,
             'Content-Disposition': `inline; filename="${metadata.metadata?.originalName || metadata.filename}"`,
             'Content-Length': metadata.length.toString(),
             'Access-Control-Allow-Origin': '*',
+            'Accept-Ranges': 'bytes',
             'Cache-Control': 'public, max-age=31536000' // Cache for 1 year
           },
           body: base64File,
