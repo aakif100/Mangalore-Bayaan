@@ -10,8 +10,8 @@ const { uploadFile, getFileMetadata, deleteFile } = require('./api/_gridfs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-// Support both MONGO_URI and MONGODB_URI for consistency
-const MONGO = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/mangalorebayaan';
+// Support both MONGO_URI and MONGO_URI for consistency
+const MONGO = process.env.MONGO_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/mangalorebayaan';
 
 app.use(cors());
 app.use(express.json({limit: '50mb'})); // Increase limit for file uploads

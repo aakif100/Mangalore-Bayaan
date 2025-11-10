@@ -13,9 +13,9 @@ const options = {
 };
 
 exports.connect = async function() {
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGO_URI;
   if (!uri) {
-    throw new Error('MONGODB_URI environment variable is not set');
+    throw new Error('MONGO_URI environment variable is not set');
   }
   
   // Check if mongoose is already connected (readyState: 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting)
