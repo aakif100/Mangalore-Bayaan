@@ -1,4 +1,4 @@
-n# Mangalore Bayaan — UI Prototype
+# Mangalore Bayaan — UI Prototype
 
 This is a simple static UI prototype for the "Mangalore Bayaan" website. It demonstrates a minimalist, peaceful palette with glass-morphism and a responsive card grid for lecture recordings.
 
