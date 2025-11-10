@@ -9,7 +9,7 @@ const options = {
   socketTimeoutMS: 45000,
   maxPoolSize: 1, // Maintain up to 1 socket connection
   bufferCommands: false, // Disable mongoose buffering
-  bufferMaxEntries: 0 // Disable mongoose buffering
+//   bufferMaxEntries: 0 // Disable mongoose buffering
 };
 
 exports.connect = async function() {
