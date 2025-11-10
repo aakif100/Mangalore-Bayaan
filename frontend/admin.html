@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Admin — Mangalore Bayaan</title>
+    <link rel="stylesheet" href="css/styles.css" />
+    <style>
+      .admin-wrap{max-width:900px;margin:24px auto;padding:18px}
+      form .row{display:flex;gap:12px}
+      form label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+      form input, form textarea{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(0,0,0,0.06)}
+      .input-with-dropdown { position: relative; }
+      .tags-input-container { position: relative; }
+      .tags-input-container input {
+        margin-bottom: 8px;
+      }
+      .selected-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+      .selected-tag {
+        background: var(--accent);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .selected-tag button {
+        border: none;
+        background: none;
+        color: white;
+        padding: 0;
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+      }
+      .actions{display:flex;gap:10px;margin-top:10px}
+      .list{margin-top:20px;display:flex;flex-direction:column;gap:10px}
+      .item{background:var(--card);padding:10px;border-radius:10px;border:1px solid var(--glass-border);display:flex;justify-content:space-between;align-items:center}
+      .muted{color:var(--muted);font-size:13px}
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <div class="brand">
+          <h1>Admin — Mangalore Bayaan</h1>
+          <p class="tagline">Add / export / import lecture recordings</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="container admin-wrap">
+      <div style="display:flex;gap:12px;align-items:center;justify-content:flex-end;margin-bottom:12px">
+        <div id="loginStatus" class="muted">Not logged in</div>
+        <input id="adminPassword" type="password" placeholder="admin password" style="padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.06)" />
+        <button id="loginBtn" class="play-btn">Log in</button>
+        <button id="logoutBtn" style="display:none">Log out</button>
+      </div>
+
+      <form id="addForm">
+        <input type="hidden" id="editId" />
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <label>Title</label>
+            <input id="title" required />
+          </div>
+          <div style="flex:0.4;min-width:160px">
+            <label>Speaker</label>
+            <div class="input-with-dropdown">
+              <input id="speaker" list="speakersList" autocomplete="off" />
+              <datalist id="speakersList"></datalist>
+            </div>
+          </div>
+          <div style="flex:0.4;min-width:160px">
+            <label>Masjid</label>
+            <div class="input-with-dropdown">
+              <input id="masjid" list="masjidList" autocomplete="off" />
+              <datalist id="masjidList"></datalist>
+            </div>
+          </div>
+          <div style="flex:0.2;min-width:120px">
+            <label>Date</label>
+            <input id="date" type="date" />
+          </div>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:220px">
+            <label>Tags (click to select multiple)</label>
+            <div class="tags-input-container">
+              <input id="tags" placeholder="Type or select tags" list="tagsList" autocomplete="off" />
+              <datalist id="tagsList"></datalist>
+              <div id="selectedTags" class="selected-tags"></div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:220px">
+            <label>Video ID (YouTube)</label>
+            <input id="videoId" placeholder="e.g. dQw4w9WgXcQ" />
+          </div>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>Or upload a file (video/audio)</label>
+          <input id="mediaFile" type="file" accept="video/*,audio/*,.aac,.m4a,.flac,.ogg,.wav,.mp3" />
+        </div>
+
+        <div class="actions">
+          <button id="submitBtn" class="play-btn" type="submit">Add recording</button>
+          <button type="button" id="clearBtn">Clear form</button>
+          <button type="button" id="exportBtn">Export JSON</button>
+          <input id="importFile" type="file" accept="application/json" style="display:none" />
+          <button type="button" id="importBtn">Import JSON</button>
+        </div>
+      </form>
+
+      <section class="list" id="list"></section>
+
+      <p class="muted">Note: For the admin page to update the public page automatically, serve both pages from the same origin (run a simple static server in this folder). If you open files directly by double-clicking, browser storage may be isolated per-file.</p>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <small>&copy; <span id="year"></span> Mangalore Bayaan — Admin</small>
+      </div>
+    </footer>
+
+    <script src="js/admin.js"></script>
+  </body>
+</html>

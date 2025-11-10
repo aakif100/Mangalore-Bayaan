@@ -1,0 +1,58 @@
+[build]
+  publish = "frontend"
+  functions = "api"
+  command = "npm install"
+
+# Redirect all API routes to Netlify Functions
+# Note: Netlify preserves the original request path in event.path
+# Order matters - more specific routes should come first
+
+# Health check endpoint
+[[redirects]]
+  from = "/api/health"
+  to = "/.netlify/functions/health"
+  status = 200
+
+# Auth endpoint
+[[redirects]]
+  from = "/api/auth/login"
+  to = "/.netlify/functions/auth"
+  status = 200
+
+# Upload endpoint
+[[redirects]]
+  from = "/api/upload"
+  to = "/.netlify/functions/upload"
+  status = 200
+
+# Lectures endpoints
+# Order matters: exact match must come before wildcard
+# Netlify preserves the original path in event.path for internal redirects (status 200)
+[[redirects]]
+  from = "/api/lectures"
+  to = "/.netlify/functions/lectures"
+  status = 200
+
+[[redirects]]
+  from = "/api/lectures/*"
+  to = "/.netlify/functions/lectures"
+  status = 200
+
+# Catch-all for other API routes
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+[[headers]]
+  for = "/uploads/*"
+  [headers.values]
+    Content-Type = "audio/mpeg"
+  
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
