@@ -55,13 +55,59 @@ async function apiUpdateLecture(id, item){
 
 async function apiUploadFile(file){
   const token = getToken();
-  const form = new FormData();
-  form.append('file', file);
   const headers = {};
   if(token) headers['Authorization'] = 'Bearer ' + token;
-  const res = await fetch(`${API_BASE}/api/upload`, {method:'POST', body: form, headers});
-  if(!res.ok) throw new Error('Upload failed');
-  return res.json();
+  
+  // Check if we're on Netlify (serverless functions) or local Express server
+  // Netlify Functions need base64, Express server can handle FormData
+  const isNetlify = window.location.hostname.includes('netlify.app') || 
+                    window.location.hostname.includes('netlify') ||
+                    window.location.hostname.includes('netlify.com');
+  
+  if (isNetlify) {
+    // Convert file to base64 for Netlify Functions
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async function(e) {
+        const base64 = e.target.result.split(',')[1]; // Remove data:type;base64, prefix
+        try {
+          headers['Content-Type'] = 'application/json';
+          const res = await fetch(`${API_BASE}/api/upload`, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({
+              file: base64,
+              fileName: file.name,
+              mimeType: file.type
+            })
+          });
+          if(!res.ok) {
+            const error = await res.json().catch(() => ({ error: 'Upload failed' }));
+            throw new Error(error.error || 'Upload failed');
+          }
+          resolve(await res.json());
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  } else {
+    // Use FormData for local Express server
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`${API_BASE}/api/upload`, {
+      method: 'POST',
+      body: form,
+      headers: headers // Don't set Content-Type for FormData, browser will set it with boundary
+    });
+    if(!res.ok) {
+      const error = await res.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(error.error || 'Upload failed');
+    }
+    return res.json();
+  }
 }
 
 async function apiDeleteLecture(id){

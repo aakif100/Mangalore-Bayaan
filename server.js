@@ -5,7 +5,8 @@ const cors = require('cors');
 const path = require('path');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
-const fs = require('fs');
+const { GridFSBucket } = require('mongodb');
+const { uploadFile, getFileMetadata, deleteFile } = require('./api/_gridfs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,7 +14,8 @@ const PORT = process.env.PORT || 3000;
 const MONGO = process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/mangalorebayaan';
 
 app.use(cors());
-app.use(express.json({limit: '2mb'}));
+app.use(express.json({limit: '50mb'})); // Increase limit for file uploads
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Config
 const ADMIN_PASS = process.env.ADMIN_PASSWORD || 'changeme';
@@ -51,43 +53,23 @@ const Lecture = mongoose.model('Lecture', LectureSchema);
 
 // Connect to MongoDB
 mongoose.connect(MONGO, {autoIndex:true})
-  .then(()=>console.log('Connected to MongoDB'))
+  .then(()=>{
+    console.log('Connected to MongoDB');
+    // Initialize GridFS bucket after connection
+    const db = mongoose.connection.db;
+    const bucket = new GridFSBucket(db, { bucketName: 'uploads' });
+    console.log('GridFS bucket initialized');
+  })
   .catch(err=>console.error('MongoDB connection error:', err.message));
 
-// ensure uploads folder exists and serve it
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-// Setup proper MIME types for audio formats
-const mimeTypes = {
-  '.aac': 'audio/aac',
-  '.m4a': 'audio/mp4',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
-  '.wav': 'audio/wav',
-  '.flac': 'audio/flac'
-};
-
-app.use('/uploads', express.static(UPLOADS_DIR, {
-  setHeaders: (res, filePath) => {
-    const ext = path.extname(filePath).toLowerCase();
-    if (mimeTypes[ext]) {
-      res.setHeader('Content-Type', mimeTypes[ext]);
-    }
-  }
-}));
-
-// multer setup
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, UPLOADS_DIR)
-  },
-  filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    const name = Date.now() + '-' + Math.random().toString(36).slice(2,8) + ext;
-    cb(null, name);
+// Multer setup for memory storage (we'll get the buffer and upload to GridFS)
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 100 * 1024 * 1024 // 100MB limit
   }
 });
-const upload = multer({ storage });
 
 // API routes
 app.get('/api/health', (req,res)=>res.json({ok:true, time:Date.now()}));
@@ -156,8 +138,21 @@ app.put('/api/lectures/:id', authMiddleware, async (req,res)=>{
 
 app.delete('/api/lectures/:id', authMiddleware, async (req,res)=>{
   try{
-    const removed = await Lecture.findByIdAndDelete(req.params.id);
-    if(!removed) return res.status(404).json({error:'not found'});
+    const lecture = await Lecture.findById(req.params.id);
+    if(!lecture) return res.status(404).json({error:'not found'});
+    
+    // If lecture has a mediaUrl pointing to GridFS, delete the file
+    if(lecture.mediaUrl && lecture.mediaUrl.startsWith('/api/files/')) {
+      const fileId = lecture.mediaUrl.split('/').pop();
+      try {
+        await deleteFile(fileId);
+      } catch (err) {
+        console.error('Error deleting file from GridFS:', err);
+        // Continue with lecture deletion even if file deletion fails
+      }
+    }
+    
+    await Lecture.findByIdAndDelete(req.params.id);
     res.json({ok:true});
   }catch(err){
     res.status(500).json({error: err.message});
@@ -173,18 +168,81 @@ app.post('/api/auth/login', (req,res)=>{
   res.json({token});
 });
 
-// File upload (video/audio)
-app.post('/api/upload', authMiddleware, upload.single('file'), (req,res)=>{
+// File upload using GridFS
+app.post('/api/upload', authMiddleware, upload.single('file'), async (req,res)=>{
   try{
     if(!req.file) return res.status(400).json({error:'no file uploaded'});
-    const url = `/uploads/${req.file.filename}`;
-    // determine media type
+    
+    // Determine media type
     const mime = req.file.mimetype || '';
     let mediaType = 'video';
     if(mime.startsWith('audio/')) mediaType = 'audio';
-    return res.json({ok:true, url, mediaType});
+    
+    // Generate unique filename
+    const ext = path.extname(req.file.originalname);
+    const filename = `${Date.now()}-${Math.random().toString(36).slice(2,8)}${ext}`;
+    
+    // Upload to GridFS
+    const result = await uploadFile(
+      req.file.buffer,
+      filename,
+      {
+        originalName: req.file.originalname,
+        mimetype: req.file.mimetype,
+        mediaType: mediaType,
+        uploadedAt: new Date()
+      }
+    );
+    
+    // Return URL that points to our file serving endpoint
+    const url = `/api/files/${result.fileId}`;
+    
+    return res.json({
+      ok: true,
+      url: url,
+      fileId: result.fileId,
+      mediaType: mediaType,
+      filename: filename
+    });
   }catch(err){
+    console.error('Upload error:', err);
     return res.status(500).json({error: err.message});
+  }
+});
+
+// Serve files from GridFS
+app.get('/api/files/:fileId', async (req, res) => {
+  try {
+    const fileId = req.params.fileId;
+    
+    // Get file metadata
+    const metadata = await getFileMetadata(fileId);
+    if (!metadata) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    // Set appropriate headers
+    res.setHeader('Content-Type', metadata.metadata?.mimetype || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${metadata.metadata?.originalName || metadata.filename}"`);
+    res.setHeader('Content-Length', metadata.length);
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    
+    // Stream file from GridFS
+    const db = mongoose.connection.db;
+    const bucket = new GridFSBucket(db, { bucketName: 'uploads' });
+    const downloadStream = bucket.openDownloadStream(mongoose.Types.ObjectId(fileId));
+    
+    downloadStream.on('error', (err) => {
+      console.error('Error streaming file:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Error streaming file' });
+      }
+    });
+    
+    downloadStream.pipe(res);
+  } catch (err) {
+    console.error('Error serving file:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

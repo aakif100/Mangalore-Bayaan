@@ -25,6 +25,12 @@
   to = "/.netlify/functions/upload"
   status = 200
 
+# Files endpoint (serve files from GridFS)
+[[redirects]]
+  from = "/api/files/*"
+  to = "/.netlify/functions/files/:splat"
+  status = 200
+
 # Lectures endpoints
 # Order matters: exact match must come before wildcard
 # Netlify preserves the original path in event.path for internal redirects (status 200)
@@ -44,11 +50,6 @@
   to = "/.netlify/functions/:splat"
   status = 200
 
-[[headers]]
-  for = "/uploads/*"
-  [headers.values]
-    Content-Type = "audio/mpeg"
-  
 [[headers]]
   for = "/*"
   [headers.values]

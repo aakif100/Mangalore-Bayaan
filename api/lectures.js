@@ -138,8 +138,8 @@ exports.handler = async (event, context) => {
           };
         }
         
-        const removed = await Lecture.findByIdAndDelete(id);
-        if (!removed) {
+        const lecture = await Lecture.findById(id);
+        if (!lecture) {
           return {
             statusCode: 404,
             headers: {
@@ -149,6 +149,20 @@ exports.handler = async (event, context) => {
             body: JSON.stringify({ error: 'Lecture not found' })
           };
         }
+        
+        // If lecture has a mediaUrl pointing to GridFS, delete the file
+        if (lecture.mediaUrl && lecture.mediaUrl.startsWith('/api/files/')) {
+          const fileId = lecture.mediaUrl.split('/').pop();
+          try {
+            const { deleteFile } = require('./_gridfs');
+            await deleteFile(fileId);
+          } catch (err) {
+            console.error('Error deleting file from GridFS:', err);
+            // Continue with lecture deletion even if file deletion fails
+          }
+        }
+        
+        await Lecture.findByIdAndDelete(id);
         
         return {
           statusCode: 200,
